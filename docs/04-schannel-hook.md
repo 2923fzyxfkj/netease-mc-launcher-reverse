@@ -6,12 +6,13 @@
 
 `WPFLauncher.exe` 是 .NET 程序，它的 HTTPS 请求最终落到 Windows 原生 Schannel：
 
-```text
-.NET HttpWebRequest / WebClient
-      ↓ SslStream
-secur32.dll!InitializeSecurityContext   （握手）
-secur32.dll!EncryptMessage              （发送明文 → 密文）
-secur32.dll!DecryptMessage              （接收密文 → 明文）
+```mermaid
+flowchart TD
+    A[".NET HttpWebRequest / WebClient"] -->|"SslStream"| B["secur32.dll!InitializeSecurityContext"]
+    B -->|"握手完成"| C["secur32.dll!EncryptMessage"]
+    C -->|"明文 → 密文"| D["网络"]
+    D -->|"密文 → 明文"| E["secur32.dll!DecryptMessage"]
+    E --> F[".NET 上层拿到明文"]
 ```
 
 **只要我们 hook 住这两个函数，就能在加密前/解密后拿到明文。**

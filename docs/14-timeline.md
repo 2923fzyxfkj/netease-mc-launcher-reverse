@@ -2,6 +2,18 @@
 
 > 从「完全不知道能不能做」到「只差一道加密握手」的完整路径。
 
+## 总览
+
+```mermaid
+flowchart LR
+    A["协议侦察"] --> B["认证可行性"]
+    B --> C["登录抓包<br/>三次失败"]
+    C --> D["IPC 逆向"]
+    D --> E["注册表突破"]
+    E --> F["login-otp 破解"]
+    F --> G["authentication-otp<br/>当前卡点"]
+```
+
 ## 阶段一：协议侦察
 
 **目标**：先搞清楚建房/心跳是不是纯 HTTP。
@@ -18,13 +30,12 @@
 
 **目标**：能不能用自己的 token 独立跑。
 
-**尝试**：
-
-| 场景 | 结果 |
-|---|---|
-| 客户端在线时建房 | `code:22 另一处登录` |
-| 客户端退出后建房 | `code:10 请先登录` |
-| 客户端退出后每 5 秒发请求 | 5 秒内变 `code:10`，**续不住** |
+```mermaid
+flowchart TD
+    A["客户端在线时建房"] --> A1["code:22 另一处登录"]
+    B["客户端退出后建房"] --> B1["code:10 请先登录"]
+    C["客户端退出后每 5 秒发请求"] --> C1["5 秒内变 code:10<br/>续不住"]
+```
 
 **结论**：token 与会话绑定，退出即注销。纯协议方案需要「自己完成登录」。
 
@@ -44,13 +55,15 @@
 
 **目标**：ticket 到底怎么传的。
 
-**发现**：
+```mermaid
+sequenceDiagram
+    participant L as FeverGamesLauncher
+    participant M as LHMW_FG_Main
 
-```text
-FeverGamesLauncher.exe
-  ├─ FindWindowExW(HWND_MESSAGE, cls="LHMW_FG_Main")
-  ├─ SendMessageTimeoutW(hwnd, WM_COPYDATA=0x4A, wParam, &COPYDATASTRUCT)
-  └─ 拿不到 ticket → "can not get ticket from Fever Games..."
+    L->>M: FindWindowExW(HWND_MESSAGE)
+    L->>M: SendMessageTimeoutW(0x4A, WM_COPYDATA)
+    M-->>L: 回发 ticket
+    Note over L: 拿不到就报 "can not get ticket..."
 ```
 
 **结果**：定位了通道与窗口类名，但**数据加密未解**（1600 种 XOR 偏移组合均失败）。
@@ -59,16 +72,11 @@ FeverGamesLauncher.exe
 
 **目标**：换思路找凭证。
 
-**发现**：
-
-```text
-HKCU\Software\FeverGames\FeverGamesInstaller\data\token
-```
-
-值类型 `REG_BINARY`，内容是 **Base64 的明文 JSON**：
-
-```json
-{"account_id":"...","userId":"...","token":"<64 位>","type":10}
+```mermaid
+flowchart LR
+    A["HKCU\\Software\\FeverGames<br/>\\FeverGamesInstaller\\data\\token"] --> B["REG_BINARY"]
+    B --> C["Base64 解码"]
+    C --> D["明文 JSON<br/>account_id / userId / token(64)"]
 ```
 
 **意义**：登录态不需要启动器运行即可读取。**「无图形环境」从不可能变成有希望。**
@@ -77,11 +85,13 @@ HKCU\Software\FeverGames\FeverGamesInstaller\data\token
 
 **目标**：登录接口能不能复现。
 
-**过程**：
-
-1. 用「拦截 CreateProcessW + 主线程注入」抓到启动瞬间的请求
-2. 发现 `login-otp` 的请求体是**明文 JSON**
-3. 重放验证：返回 `code:0`，附带 `otp_token` / `aid`
+```mermaid
+flowchart TD
+    A["拦截 CreateProcessW<br/>+ 主线程注入"] --> B["抓到启动瞬间的请求"]
+    B --> C["发现 login-otp 是明文 JSON"]
+    C --> D["重放验证"]
+    D --> E["code:0 + otp_token / aid"]
+```
 
 **结论**：登录第一步完全可复现，纯 HTTP，无需图形。
 
@@ -99,15 +109,15 @@ HKCU\Software\FeverGames\FeverGamesInstaller\data\token
 
 ## 当前状态一览
 
-```text
-[✅] 建房 / 心跳协议
-[✅] Rust 守护进程（编译通过、测试通过）
-[✅] 注册表登录态定位
-[✅] login-otp 明文协议 + 重放验证
-[✅] 会话互斥 / 失效机制实测
-[❌] authentication-otp 加密
-[❌] refresh_token → access_token 刷新接口
-```
+| 状态 | 项 |
+|---|---|
+| ✅ | 建房 / 心跳协议 |
+| ✅ | Rust 守护进程（编译通过、测试通过） |
+| ✅ | 注册表登录态定位 |
+| ✅ | login-otp 明文协议 + 重放验证 |
+| ✅ | 会话互斥 / 失效机制实测 |
+| ❌ | authentication-otp 加密 |
+| ❌ | refresh_token → access_token 刷新接口 |
 
 ## 下一步建议
 

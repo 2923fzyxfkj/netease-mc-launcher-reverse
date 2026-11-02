@@ -41,19 +41,16 @@ POST /login-otp
 
 去掉 `1-` 前缀后是 base64 的 JSON：
 
-```json
-{
-  "prs": 30,
-  "lt": 1793625548,
-  "odi": "<deviceid>",
-  "s": "[mp]-<32 字符>-<64 hex>",
-  "u": "<sdkuid>",
-  "t": 1,
-  "w": "t",
-  "si": "<40 hex>",
-  "g_i": "<gameid>",
-  "sa": 3
-}
+```mermaid
+flowchart TD
+    A["sessionid = 1-&lt;base64&gt;"] --> B["base64 解码"]
+    B --> C["JSON"]
+    C --> D["prs: 30"]
+    C --> E["lt: 登录时间戳"]
+    C --> F["odi: 设备标识"]
+    C --> G["s: [mp]-&lt;32 字符&gt;-&lt;64 hex&gt;"]
+    C --> H["u: sdkuid"]
+    C --> I["si: 会话 ID（40 hex）"]
 ```
 
 | 字段 | 说明 |
@@ -102,6 +99,13 @@ POST /login-otp
 
 ## 已验证的事实
 
+```mermaid
+flowchart LR
+    A["抓到的完整 sauth_json"] --> B["重新 POST /login-otp"]
+    B --> C["code:0 + 新的 otp_token"]
+    C --> D["✅ 可重放"]
+```
+
 1. **接口是明文的**，无需任何加密即可构造
 2. **可以重放**：用抓到的完整 `sauth_json` 重新 POST，返回 `code:0`
 3. **不要求图形环境**：纯 HTTP
@@ -111,9 +115,11 @@ POST /login-otp
 
 `sauth_json` 里有三个字段**我们无法凭空生成**：
 
-- `sessionid`（含服务端签名 `s`）
-- `access_token`（JWT，`exp` 约 3 天）
-- `client_login_sn`（可随机，但可能参与校验）
+| 字段 | 依赖 |
+|---|---|
+| `sessionid`（含签名 `s`） | UniSDK 登录响应 |
+| `access_token`（JWT，`exp` 约 3 天） | UniSDK 登录响应 |
+| `client_login_sn` | 可随机，但可能参与校验 |
 
 其中 `sessionid` 与 `access_token` 都来自 UniSDK 的登录结果，
 而那次登录发生在客户端启动早期，且**不是普通 HTTP**（抓不到）。

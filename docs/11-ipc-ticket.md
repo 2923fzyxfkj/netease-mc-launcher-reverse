@@ -51,12 +51,17 @@ cls=LHMW_FG_Main  title=LHMW_FG_Main  pid=<发烧游戏主进程>
 
 ## 交互时序（实测抓取）
 
-```text
-[WPFLauncher 启动]
-  → FindWindowExW(cls="LHMW_FG_client...")    创建/查找自己的窗口
-  → FindWindowExW(cls="LHMW_FG_Main")         查找主窗口
-  → SendMessageTimeoutW(hwnd, WM_COPYDATA=0x4A, wParam, &COPYDATASTRUCT)
-  ← 主窗口回发 WM_COPYDATA（含 ticket）
+```mermaid
+sequenceDiagram
+    participant WL as WPFLauncher
+    participant Own as LHMW_FG_client..._i0
+    participant Main as LHMW_FG_Main
+
+    WL->>Own: FindWindowExW（创建/查找自己的窗口）
+    WL->>Main: FindWindowExW(cls="LHMW_FG_Main")
+    WL->>Main: SendMessageTimeoutW(0x4A, WM_COPYDATA)
+    Note over WL,Main: dwData=0x1（控制）/ 0x0（数据）
+    Main-->>Own: 回发 WM_COPYDATA（含 ticket）
 ```
 
 抓到的日志片段：
@@ -96,11 +101,15 @@ CD   dw=0x0 cb=272
 
 对 IPC 数据尝试过：
 
-| 尝试 | 结果 |
-|---|---|
-| 直接按 JSON 解析 | 失败，二进制 |
-| 找固定前缀 | 每个消息都有 8 字节头（类型 + 子类型） |
-| 用 496 字节表做滚动 XOR | 1600 种偏移组合均失败 |
+```mermaid
+flowchart TD
+    A["IPC 二进制数据"] --> B["按 JSON 解析"]
+    B --> B1["❌ 失败"]
+    A --> C["找固定前缀"]
+    C --> C1["⚠ 每个消息都有 8 字节头"]
+    A --> D["496 字节表滚动 XOR"]
+    D --> D1["❌ 1600 种偏移均失败"]
+```
 
 > 结论：IPC 数据的加密方式与 `FeverGamesLauncher.exe` 里那段 XOR 循环**不是同一套**。
 
@@ -129,9 +138,14 @@ IPCPlugin::sigOperationAck
 
 思路是「**不让别人传，自己去拿**」：
 
-1. 创建自己的 `LHMW_FG_client<sid>_i0` 窗口
-2. 向 `LHMW_FG_Main` 发 `WM_COPYDATA` 注册
-3. 收到主窗口回发的 ticket
+```mermaid
+flowchart LR
+    A["创建自己的<br/>LHMW_FG_client..._i0"] --> B["向 LHMW_FG_Main<br/>发 WM_COPYDATA 注册"]
+    B --> C["等待主窗口回发 ticket"]
+    C --> D{"拿到？"}
+    D -->|"是"| E["用 ticket 走 login-otp"]
+    D -->|"否"| F["检查 UIPI 与消息格式"]
+```
 
 难点：
 

@@ -5,12 +5,19 @@
 
 ## 问题
 
-```text
-用户点「开始游戏」
-  → 发烧游戏 CreateProcessW 拉起 WPFLauncher.exe
-  → WPFLauncher 启动 .NET 运行时（约 2~3 秒）
-  → 立即发起登录请求（login-otp / authentication-otp）
-  → 之后才是各种业务请求
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant FG as 发烧游戏
+    participant WL as WPFLauncher
+    participant NET as .NET 运行时
+
+    U->>FG: 点「开始游戏」
+    FG->>WL: CreateProcessW --start_from_launcher=1
+    WL->>NET: 启动（约 2~3 秒）
+    NET->>NET: 发起登录请求（login-otp / authentication-otp）
+    NET->>NET: 之后才是各种业务请求
+    Note over U,NET: 注入窗口只有 2~3 秒
 ```
 
 要在「登录请求发出之前」把 hook 装好，窗口只有 **2~3 秒**。
@@ -64,6 +71,28 @@ def on_message(msg, data):
 在此调用 `frida.attach()` 会造成重入死锁。
 
 ## 最终方案：回调只入队，主线程注入
+
+```mermaid
+sequenceDiagram
+    participant Main as 主线程
+    participant Host as host agent
+    participant Child as child agent
+    participant Target as WPFLauncher
+
+    Main->>Host: attach FeverGamesInstaller + load
+    Host->>Host: hook CreateProcessW
+    Note over Host: 用户点「开始游戏」
+    Host->>Host: onLeave 读到新 PID
+    Host-->>Main: send(HOST_PID)
+    Main->>Main: 入队（不在回调里 attach）
+    Main->>Child: attach 子进程 + load
+    Child->>Child: 轮询等待 secur32.dll
+    Child->>Child: 挂 EncryptMessage / DecryptMessage
+    Target->>Target: 发生登录请求
+    Child-->>Main: 明文全被捕获
+```
+
+实现：
 
 ```python
 import queue, time, frida
@@ -130,17 +159,6 @@ tryHook();
 ```
 
 **判据**：如果日志里出现 `enc=false dec=false`，说明注入太早，模块还没加载。
-
-## 完整时序
-
-```text
-[主线程] attach FeverGamesInstaller → 加载 host agent
-[用户]   点「开始游戏」
-[host]   CreateProcessW 命中 → onLeave 拿到新 PID → send
-[主线程] 收到 PID → attach 子进程 → 加载 child agent
-[child]  轮询等待 secur32.dll → 命中 → 挂 EncryptMessage/DecryptMessage
-[目标]   .NET 启动完成 → 发登录请求 → 明文全被捕获
-```
 
 ## 三个不能做的事
 

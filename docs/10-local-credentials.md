@@ -45,11 +45,12 @@ HKCU\Software\FeverGames\FeverGamesInstaller\data\token
 
 ## 为什么这个发现关键
 
-它把「无图形环境」从不可能变成了「有希望」：
-
-```text
-之前：登录态只在内存里 → 必须有客户端跑着 → 必须有图形桌面
-之后：登录态明文在注册表 → 关掉客户端也能读 → 服务器上可以直接拿
+```mermaid
+flowchart LR
+    A["之前：登录态只在内存里"] --> B["必须有客户端跑着"]
+    B --> C["必须有图形桌面"]
+    D["之后：登录态明文在注册表"] --> E["关掉客户端也能读"]
+    E --> F["服务器上可以直接拿"]
 ```
 
 ## 读取方式
@@ -68,7 +69,6 @@ def read_reg_binary(path, name):
     if not m:
         return None
     raw = bytes.fromhex(m.group(1))
-    # 实际内容可能是 Base64 文本，也可能是纯二进制
     try:
         return base64.b64decode(raw).decode("utf-8")
     except Exception:
@@ -97,14 +97,12 @@ $text | ConvertFrom-Json
 
 两者的关系还没完全打通：
 
-```text
-注册表 token (64 位)
-      ↓ ?
-access_token (JWT)
-      ↓ UniSDK 登录
-sessionid
-      ↓ login-otp → authentication-otp
-user-token (16 位)
+```mermaid
+flowchart TD
+    A["注册表 token（64 位）"] -->|"?"| B["access_token（JWT）"]
+    B -->|"UniSDK 登录"| C["sessionid"]
+    C -->|"login-otp → authentication-otp"| D["user-token（16 位）"]
+    D --> E["建房 / 心跳"]
 ```
 
 详见 [08 登录第一步](08-login-otp.md)。

@@ -2,31 +2,24 @@
 
 > 这篇讲清楚：有几个进程、各自用什么技术栈、TLS 走哪条路。**抓包策略完全由这张图决定。**
 
-## 一张图
+## 进程与数据流
 
-```text
-┌─────────────────────────────────────────────────────────┐
-│ 网易发烧游戏  FeverGamesInstaller.exe                    │
-│  Qt + QML + CEF（79 MB）                                 │
-│   ① 账号登录：CEF 网页 + 原生 UniSDK                      │
-│   ② 登录态明文写入注册表                                  │
-│   ③ 通过 WM_COPYDATA 与本进程内的 LHMW_FG_Main 窗口交互   │
-└──────────────────┬──────────────────────────────────────┘
-                   │ CreateProcessW
-                   │ 命令行：--start_from_launcher=1
-                   ↓
-┌─────────────────────────────────────────────────────────┐
-│ MC 启动器  WPFLauncher.exe（.NET 4.5.2 / WPF，32 位）      │
-│   ④ 通过本地 IPC 索取 ticket                             │
-│   ⑤ 调 UniSDK 换取 MC 会话（user-token）                  │
-│   ⑥ 调用联机大厅 HTTP API                                 │
-└──────────────────┬──────────────────────────────────────┘
-                   │ HTTPS
-                   ↓
-┌─────────────────────────────────────────────────────────┐
-│ x19apigatewayobt.nie.netease.com:443   业务 API          │
-│ x19obtcore.nie.netease.com:8443        登录/会话          │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    FG["网易发烧游戏<br/>FeverGamesInstaller.exe<br/>Qt + QML + CEF (79 MB)"]
+    WT["MC 启动器<br/>WPFLauncher.exe<br/>.NET 4.5.2 / WPF (32 位)"]
+    API["业务 API<br/>x19apigatewayobt.nie.netease.com:443"]
+    CORE["登录 / 会话<br/>x19obtcore.nie.netease.com:8443"]
+    REG[("Windows 注册表<br/>HKCU\\Software\\FeverGames<br/>\\FeverGamesInstaller\\data\\token")]
+
+    FG -->|"① 账号登录（CEF 网页 + 原生 UniSDK）"| FG
+    FG -->|"② 登录态明文持久化"| REG
+    FG -->|"③ 本进程内 WM_COPYDATA<br/>与 LHMW_FG_Main 窗口交互"| FG
+    FG -->|"CreateProcessW<br/>--start_from_launcher=1"| WT
+    WT -->|"④ 本地 IPC 索取 ticket"| FG
+    WT -->|"⑤ 调 UniSDK 换取 user-token"| CORE
+    WT -->|"⑥ HTTPS 建房 / 心跳"| API
+    REG -.->|"可离线读取"| API
 ```
 
 ## 进程与技术栈对照
@@ -42,11 +35,13 @@
 
 它直接否掉了三种常见的抓包思路：
 
-| 思路 | 为什么不行 |
-|---|---|
-| 设系统代理 + mitmproxy | `WPFLauncher.exe.config` 里 `defaultProxy enabled="false"` |
-| 设 WinHTTP 代理 | WinHTTP 与 WinINet 是**两套独立配置**，且登录走的是 WinHTTP |
-| 装 CA 到系统证书库抓 CEF | 登录页在 CEF 里，走 Chromium 自带的 BoringSSL，**不读系统证书库** |
+```mermaid
+flowchart LR
+    A["设系统代理 + mitmproxy"] --> A1["❌ defaultProxy=false"]
+    B["设 WinHTTP 代理"] --> B1["❌ 与 WinINet 是两套配置"]
+    C["装 CA 抓 CEF"] --> C1["❌ BoringSSL 不读系统证书库"]
+    D["hook secur32"] --> D1["✅ 明文必经之路"]
+```
 
 同时也提示了正确方向：
 
@@ -55,11 +50,11 @@
 
 ## 版本信息（实测）
 
-```text
-WPFLauncher.exe        1.15.31.20647  (x86)
-网易发烧游戏            1.18.45.8
-UniSDK                 sdk_version 4.10.0
-```
+| 组件 | 版本 |
+|---|---|
+| `WPFLauncher.exe` | `1.15.31.20647`（x86） |
+| 网易发烧游戏 | `1.18.45.8` |
+| UniSDK | `sdk_version 4.10.0` |
 
 ## 关键文件位置
 

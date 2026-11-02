@@ -6,21 +6,25 @@
 
 网易《我的世界》中国版的「联机大厅」里，房间依附于房主客户端：
 
-```text
-房主打开客户端 → 创建房间 → 房间出现在列表 → 其他玩家可加入
-房主关闭客户端 → 房间从列表消失
+```mermaid
+flowchart LR
+    A["房主打开客户端"] --> B["创建房间"]
+    B --> C["房间出现在列表"]
+    C --> D["其他玩家可加入"]
+    A2["房主关闭客户端"] --> E["房间从列表消失"]
 ```
 
 官方对此的付费方案是「租赁服」（7×24 在线）。本项目想验证的是：**能否用协议层的手段，在无图形环境的服务器上让房间保持在线。**
 
 ## 最终做到哪一步
 
-```text
-[✅] 建房 / 心跳协议完全破解，纯 HTTP
-[✅] Rust 守护进程实现并测试通过
-[✅] 登录态在本地明文持久化（注册表）
-[✅] 登录第一步 login-otp 明文协议，可重放
-[❌] 登录第二步 authentication-otp 端到端加密
+```mermaid
+flowchart TD
+    S1["✅ 建房 / 心跳协议完全破解，纯 HTTP"]
+    S2["✅ Rust 守护进程实现并测试通过"]
+    S3["✅ 登录态在本地明文持久化（注册表）"]
+    S4["✅ 登录第一步 login-otp 明文协议，可重放"]
+    S5["❌ 登录第二步 authentication-otp 端到端加密"]
 ```
 
 **一句话结论**：协议层已经通，只差登录第二步的加密握手。
@@ -29,18 +33,28 @@
 
 认证链路是这样的：
 
-```text
-POST /login-otp           明文 JSON  → 返回 otp_token / aid     ✅
-      ↓
-POST /authentication-otp  加密二进制  → 返回 16 位 user-token   ❌
-      ↓
-POST /interconn/web/game-play-v2/login-start                    ✅
+```mermaid
+flowchart TD
+    A["POST /login-otp<br/>明文 JSON"] -->|"返回 otp_token / aid"| B["POST /authentication-otp<br/>加密二进制"]
+    B -->|"返回 16 位 user-token"| C["POST /interconn/web/game-play-v2/login-start"]
+    A -.->|"✅ 已验证可重放"| OK1["code:0"]
+    B -.->|"❌ 未攻克"| NG["请求与响应均为密文"]
 ```
 
 第一步已经能用 `libcurl` / `reqwest` 直接重放（实测返回 `code:0`），
 但第二步的请求体（约 2657 字节）和响应体（gzip 后仍是密文）都是加密的。
 
 ## 走到这一步的路径
+
+```mermaid
+flowchart LR
+    A["协议侦察<br/>建房/心跳全明文"] --> B["认证尝试<br/>token 与会话绑定"]
+    B --> C["登录抓包<br/>代理方案全废"]
+    C --> D["IPC 逆向<br/>定位 WM_COPYDATA"]
+    D --> E["注册表发现<br/>登录态明文"]
+    E --> F["login-otp<br/>明文可重放"]
+    F --> G["authentication-otp<br/>加密墙"]
+```
 
 | 阶段 | 关键结论 |
 |---|---|
