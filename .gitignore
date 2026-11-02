@@ -11,3 +11,7 @@
 capture/
 re/
 bin/
+
+# Rust 构建产物
+examples/**/target/
+examples/**/Cargo.lock
